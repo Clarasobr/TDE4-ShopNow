@@ -2,6 +2,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import json
 import itertools
+import threading
+import time
 
 # Nossos servidores backend disponíveis
 SERVERS = [
@@ -20,10 +22,33 @@ def escolher_servidor_round_robin():
 def escolher_servidor_least_connections():
     return min(SERVERS, key=lambda s: s["conexoes"])
 
+def monitorar_servidores():
+    while True:
+        for servidor in SERVERS:
+            try:
+                res = requests.get(f"{servidor['url']}/health", timeout=1.0)
+                if res.status_code == 200:
+                    servidor["ativo"] = True
+                else:
+                    servidor["ativo"] = False
+            except:
+                servidor["ativo"] = False
+        time.sleep(3) # Checa a cada 3 segundos
+
+# Inicia o monitoramento em background
+threading.Thread(target=monitorar_servidores, daemon=True).start()
+
+def escolher_servidor():
+    # Pega apenas os servidores que estão ativos (tolerância a falhas)
+    ativos = [s for s in SERVERS if s["ativo"]]
+    if not ativos:
+        return None
+    # Algoritmo Least Connections entre os ativos
+    return min(ativos, key=lambda s: s["conexoes"])
+
 class LoadBalancerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Escolha qual algoritmo usar na apresentação (ex: Least Connections)
-        servidor = escolher_servidor_least_connections()
+        servidor = escolher_servidor_round_robin()
         
         servidor["conexoes"] += 1
         try:
@@ -49,4 +74,4 @@ def run():
     servidor.serve_forever()
 
 if __name__ == "__main__":
-    run()git add load_balancer.py requests.txt
+    run()
