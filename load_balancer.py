@@ -5,23 +5,37 @@ import itertools
 import threading
 import time
 
-# Nossos servidores backend disponíveis
 SERVERS = [
-    {"url": "http://127.0.0.1:8001", "port": 8001, "conexoes": 0},
-    {"url": "http://127.0.0.1:8002", "port": 8002, "conexoes": 0},
-    {"url": "http://127.0.0.1:8003", "port": 8003, "conexoes": 0},
+    {"url": "http://127.0.0.1:8001", "port": 8001, "conexoes": 0, "ativo": True},
+    {"url": "http://127.0.0.1:8002", "port": 8002, "conexoes": 0, "ativo": True},
+    {"url": "http://127.0.0.1:8003", "port": 8003, "conexoes": 0, "ativo": True},
 ]
 
-# Algoritmo 1: Round Robin (iterador circular)
-round_robin_iter = itertools.cycle(SERVERS)
+# Algoritmo 1: Round Robin
+current_index = 0
 
 def escolher_servidor_round_robin():
-    return next(round_robin_iter)
+    global current_index
+    ativos = [s for s in SERVERS if s["ativo"]]
+    if not ativos:
+        return None
+    
+    # Garante que o índice não estoure o tamanho da lista de ativos
+    if current_index >= len(ativos):
+        current_index = 0
+        
+    servidor = ativos[current_index]
+    current_index = (current_index + 1) % len(ativos)
+    return servidor
 
-# Algoritmo 2: Least Connections (menor número de conexões ativas)
+# Algoritmo 2: Least Connections
 def escolher_servidor_least_connections():
-    return min(SERVERS, key=lambda s: s["conexoes"])
+    ativos = [s for s in SERVERS if s["ativo"]]
+    if not ativos:
+        return None
+    return min(ativos, key=lambda s: s["conexoes"])
 
+# Health Check
 def monitorar_servidores():
     while True:
         for servidor in SERVERS:
@@ -35,24 +49,21 @@ def monitorar_servidores():
                 servidor["ativo"] = False
         time.sleep(3) # Checa a cada 3 segundos
 
-# Inicia o monitoramento em background
 threading.Thread(target=monitorar_servidores, daemon=True).start()
-
-def escolher_servidor():
-    # Pega apenas os servidores que estão ativos (tolerância a falhas)
-    ativos = [s for s in SERVERS if s["ativo"]]
-    if not ativos:
-        return None
-    # Algoritmo Least Connections entre os ativos
-    return min(ativos, key=lambda s: s["conexoes"])
 
 class LoadBalancerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         servidor = escolher_servidor_round_robin()
         
+        if not servidor:
+            self.send_response(503)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"erro": "Todos os servidores estao fora do ar!"}).encode("utf-8"))
+            return
+
         servidor["conexoes"] += 1
         try:
-            # Repassa a requisição para o servidor escolhido
             resposta = requests.get(servidor["url"] + self.path, timeout=2.0)
             
             self.send_response(resposta.status_code)
@@ -60,7 +71,7 @@ class LoadBalancerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(resposta.content)
         except requests.exceptions.RequestException:
-            # Se o servidor falhou ao responder
+            servidor["ativo"] = False
             self.send_response(502)
             self.send_header("Content-type", "application/json")
             self.end_headers()
