@@ -37,6 +37,10 @@ Certifique-se de ter o Python instalado e instale a dependência de requisiçõe
 
 - python -m pip install requests
 
+Instalando o Apache Benchmark - ab no linux:
+
+- sudo apt update && sudo apt install apache2-utils -y
+
 ### Passo 1: Iniciar os Servidores Backend
 
 Abra 3 terminais separados na raiz do projeto e execute um comando em cada um:
